@@ -1,0 +1,24 @@
+name: Sudoku
+options:
+  bundleIdPrefix: com.hardcase233
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Sudoku:
+    type: application
+    platform: iOS
+    sources: [Sudoku]
+    info:
+      path: Sudoku/Info.plist
+      properties:
+        CFBundleDisplayName: Sudoku
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hardcase233.sudoku
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
