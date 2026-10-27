@@ -2,6 +2,13 @@ import SwiftUI
 
 @main
 struct SudokuApp: App {
+    init() {
+        let a = UISegmentedControl.appearance()
+        a.selectedSegmentTintColor = UIColor(red: 0.83, green: 0.69, blue: 0.22, alpha: 1)
+        a.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        a.setTitleTextAttributes([.foregroundColor: UIColor.black, .font: UIFont.boldSystemFont(ofSize: 14)], for: .selected)
+        a.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .normal)
+    }
     var body: some Scene {
         WindowGroup { ContentView().preferredColorScheme(.dark) }
     }
@@ -10,22 +17,35 @@ struct SudokuApp: App {
 let gold = Color(red: 0.83, green: 0.69, blue: 0.22)
 
 final class Game: ObservableObject {
-    static let puzzle: [Int] = [
-        5,3,0,0,7,0,0,0,0,
-        6,0,0,1,9,5,0,0,0,
-        0,9,8,0,0,0,0,6,0,
-        8,0,0,0,6,0,0,0,3,
-        4,0,0,8,0,3,0,0,1,
-        7,0,0,0,2,0,0,0,6,
-        0,6,0,0,0,0,2,8,0,
-        0,0,0,4,1,9,0,0,5,
-        0,0,0,0,8,0,0,7,9]
-    @Published var cells = Game.puzzle
+    @Published var givens: [Int]
+    @Published var cells: [Int]
+    @Published var difficulty: Difficulty = .easy
+    @Published var selectedDifficulty: Difficulty = .easy
+    @Published var generating = false
+
+    init() {
+        let p = Generator.generate(.easy)
+        givens = p; cells = p
+    }
+
+    func newPuzzle() {
+        guard !generating else { return }
+        generating = true
+        let d = selectedDifficulty
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Generator.generate(d)
+            DispatchQueue.main.async {
+                self.givens = p; self.cells = p; self.difficulty = d
+                self.selected = nil; self.error = nil; self.errorCell = nil
+                self.generating = false
+            }
+        }
+    }
     @Published var selected: Int? = nil
     @Published var error: String? = nil
     @Published var errorCell: Int? = nil
 
-    func isGiven(_ i: Int) -> Bool { Game.puzzle[i] != 0 }
+    func isGiven(_ i: Int) -> Bool { givens[i] != 0 }
     var solved: Bool { !cells.contains(0) }
 
     func related(_ a: Int, _ b: Int) -> Bool {
@@ -49,7 +69,7 @@ final class Game: ObservableObject {
         }
     }
 
-    func reset() { cells = Game.puzzle; selected = nil; error = nil; errorCell = nil }
+    func reset() { cells = givens; selected = nil; error = nil; errorCell = nil }
 }
 
 struct ContentView: View {
@@ -60,16 +80,35 @@ struct ContentView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 18) {
                 Text("SUDOKU").font(.system(size: 30, weight: .heavy)).tracking(6).foregroundColor(gold)
+                HStack {
+                    Text("DIFFICULTY").font(.caption.bold()).tracking(2).foregroundColor(.white.opacity(0.6))
+                    Text(g.difficulty.rawValue.uppercased()).font(.caption.bold()).tracking(2).foregroundColor(gold)
+                }
+                Picker("Difficulty", selection: $g.selectedDifficulty) {
+                    ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented)
                 Text(g.solved ? "Solved!" : (g.error ?? " "))
                     .font(.headline)
                     .foregroundColor(g.solved ? gold : .red)
                     .frame(height: 22)
                 board
                 pad
-                Button("Reset") { g.reset() }
-                    .font(.headline).foregroundColor(.black)
-                    .padding(.horizontal, 40).padding(.vertical, 10)
-                    .background(gold).cornerRadius(8)
+                HStack(spacing: 14) {
+                    Button { g.newPuzzle() } label: {
+                        HStack(spacing: 6) {
+                            if g.generating { ProgressView().tint(.black) }
+                            Text(g.generating ? "Generating" : "New Puzzle")
+                        }
+                        .font(.headline).foregroundColor(.black)
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .background(gold).cornerRadius(8)
+                    }.disabled(g.generating)
+                    Button { g.reset() } label: {
+                        Text("Reset").font(.headline).foregroundColor(gold)
+                            .padding(.horizontal, 28).padding(.vertical, 10)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(gold, lineWidth: 1.5))
+                    }
+                }
             }.padding()
         }
     }
