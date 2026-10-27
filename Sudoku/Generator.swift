@@ -8,6 +8,11 @@ enum Difficulty: String, CaseIterable, Identifiable {
     }
 }
 
+struct Puzzle {
+    let givens: [Int]
+    let solution: [Int]
+}
+
 enum Generator {
     static func ok(_ b: [Int], _ i: Int, _ n: Int) -> Bool {
         let r = i / 9, c = i % 9, br = r / 3 * 3, bc = c / 3 * 3
@@ -48,10 +53,10 @@ enum Generator {
 
     /// Returns a puzzle with a guaranteed unique solution. Tries to reach a random target
     /// in the difficulty range; if it can't within the time budget, keeps the attempt with most empties.
-    static func generate(_ d: Difficulty, budget: TimeInterval = 2.0) -> [Int] {
+    static func generate(_ d: Difficulty, budget: TimeInterval = 2.0) -> Puzzle {
         let target = Int.random(in: d.emptyRange)
         let start = Date()
-        var best: [Int] = []
+        var best: [Int] = [], bestSolution: [Int] = []
         var bestEmpty = -1
         repeat {
             var solved = [Int](repeating: 0, count: 81)
@@ -62,8 +67,8 @@ enum Generator {
                 var t = p
                 if count(&t) == 1 { empty += 1 } else { p[i] = v }
             }
-            if empty > bestEmpty { best = p; bestEmpty = empty }
+            if empty > bestEmpty { best = p; bestSolution = solved; bestEmpty = empty }
         } while bestEmpty < target && Date().timeIntervalSince(start) < budget
-        return best
+        return Puzzle(givens: best, solution: bestSolution)
     }
 }

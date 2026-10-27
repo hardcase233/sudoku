@@ -18,14 +18,16 @@ let gold = Color(red: 0.83, green: 0.69, blue: 0.22)
 
 final class Game: ObservableObject {
     @Published var givens: [Int]
+    @Published var solution: [Int]
     @Published var cells: [Int]
     @Published var difficulty: Difficulty = .easy
     @Published var selectedDifficulty: Difficulty = .easy
     @Published var generating = false
+    @Published var selected: Int? = nil
 
     init() {
         let p = Generator.generate(.easy)
-        givens = p; cells = p
+        givens = p.givens; solution = p.solution; cells = p.givens
     }
 
     func newPuzzle() {
@@ -35,41 +37,52 @@ final class Game: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Generator.generate(d)
             DispatchQueue.main.async {
-                self.givens = p; self.cells = p; self.difficulty = d
-                self.selected = nil; self.error = nil; self.errorCell = nil
+                self.givens = p.givens; self.solution = p.solution; self.cells = p.givens
+                self.difficulty = d; self.selected = nil
                 self.generating = false
             }
         }
     }
-    @Published var selected: Int? = nil
-    @Published var error: String? = nil
-    @Published var errorCell: Int? = nil
 
     func isGiven(_ i: Int) -> Bool { givens[i] != 0 }
-    var solved: Bool { !cells.contains(0) }
 
-    func related(_ a: Int, _ b: Int) -> Bool {
-        let (ra, ca, rb, cb) = (a/9, a%9, b/9, b%9)
-        return ra == rb || ca == cb || (ra/3 == rb/3 && ca/3 == cb/3)
+    static func sameRow(_ a: Int, _ b: Int) -> Bool { a / 9 == b / 9 }
+    static func sameCol(_ a: Int, _ b: Int) -> Bool { a % 9 == b % 9 }
+    static func sameBox(_ a: Int, _ b: Int) -> Bool { a / 27 == b / 27 && (a % 9) / 3 == (b % 9) / 3 }
+
+    func related(_ a: Int, _ b: Int) -> Bool { Game.sameRow(a, b) || Game.sameCol(a, b) || Game.sameBox(a, b) }
+
+    /// Every cell whose value duplicates a peer (row, column, or box). Recomputed live from `cells`.
+    var conflicts: Set<Int> {
+        var out = Set<Int>()
+        for a in 0..<81 where cells[a] != 0 {
+            for b in (a + 1)..<81 where cells[b] == cells[a] && related(a, b) { out.insert(a); out.insert(b) }
+        }
+        return out
     }
+
+    /// Message describing conflicts, preferring the selected cell.
+    var conflictMessage: String? {
+        let cs = conflicts
+        guard !cs.isEmpty else { return nil }
+        let focus = (selected.flatMap { cs.contains($0) ? $0 : nil }) ?? cs.sorted().first!
+        let v = cells[focus]
+        var kinds: [String] = []
+        let peers = (0..<81).filter { $0 != focus && cells[$0] == v }
+        if peers.contains(where: { Game.sameRow($0, focus) }) { kinds.append("row") }
+        if peers.contains(where: { Game.sameCol($0, focus) }) { kinds.append("column") }
+        if peers.contains(where: { Game.sameBox($0, focus) }) { kinds.append("box") }
+        return "Conflict: \(v) repeats in " + kinds.joined(separator: ", ")
+    }
+
+    var solved: Bool { !cells.contains(0) && conflicts.isEmpty && cells == solution }
 
     func place(_ n: Int) {
-        guard let s = selected, !isGiven(s) else { return }
-        if n == 0 { cells[s] = 0; return }
-        if (0..<81).contains(where: { $0 != s && cells[$0] == n && related($0, s) }) {
-            flash("\(n) already in this row, column, or box", s); return
-        }
-        cells[s] = n
+        guard !solved, let s = selected, !isGiven(s) else { return }
+        cells[s] = n   // conflicting entries are accepted and highlighted
     }
 
-    func flash(_ msg: String, _ i: Int) {
-        error = msg; errorCell = i
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.error = nil; self?.errorCell = nil
-        }
-    }
-
-    func reset() { cells = givens; selected = nil; error = nil; errorCell = nil }
+    func reset() { cells = givens; selected = nil }
 }
 
 struct ContentView: View {
@@ -87,11 +100,13 @@ struct ContentView: View {
                 Picker("Difficulty", selection: $g.selectedDifficulty) {
                     ForEach(Difficulty.allCases) { Text($0.rawValue).tag($0) }
                 }.pickerStyle(.segmented)
-                Text(g.solved ? "Solved!" : (g.error ?? " "))
+                Text(g.solved ? "Puzzle complete" : (g.conflictMessage ?? " "))
                     .font(.headline)
                     .foregroundColor(g.solved ? gold : .red)
                     .frame(height: 22)
                 board
+                    .overlay(solvedBanner)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.6), value: g.solved)
                 pad
                 HStack(spacing: 14) {
                     Button { g.newPuzzle() } label: {
@@ -113,8 +128,24 @@ struct ContentView: View {
         }
     }
 
-    func bg(_ i: Int) -> Color {
-        if g.errorCell == i { return .red.opacity(0.6) }
+    @ViewBuilder var solvedBanner: some View {
+        if g.solved {
+            VStack(spacing: 6) {
+                Image(systemName: "star.fill").font(.system(size: 34)).foregroundColor(.black)
+                Text("Solved!").font(.system(size: 40, weight: .heavy)).foregroundColor(.black)
+                Text("New Puzzle or Reset to play again").font(.footnote.bold()).foregroundColor(.black.opacity(0.7))
+            }
+            .padding(.horizontal, 30).padding(.vertical, 20)
+            .background(LinearGradient(colors: [gold, Color(red: 1, green: 0.85, blue: 0.4), gold],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+            .cornerRadius(14)
+            .shadow(color: gold.opacity(0.7), radius: 24)
+            .transition(.scale(scale: 0.3).combined(with: .opacity))
+        }
+    }
+
+    func bg(_ i: Int, _ cs: Set<Int>) -> Color {
+        if cs.contains(i) { return .red.opacity(g.isGiven(i) ? 0.25 : 0.45) }
         if let s = g.selected {
             if s == i { return gold.opacity(0.55) }
             if g.related(s, i) { return Color.white.opacity(0.1) }
@@ -127,13 +158,16 @@ struct ContentView: View {
             let side = min(geo.size.width, geo.size.height)
             let c = side / 9
             ZStack(alignment: .topLeading) {
+                let cs = g.conflicts
                 ForEach(0..<81, id: \.self) { i in
                     let v = g.cells[i]
+                    let bad = cs.contains(i)
                     Text(v == 0 ? "" : "\(v)")
                         .font(.system(size: c * 0.55, weight: g.isGiven(i) ? .heavy : .regular))
-                        .foregroundColor(g.isGiven(i) ? .white : gold)
+                        .foregroundColor(bad && !g.isGiven(i) ? .red : (g.isGiven(i) ? .white : gold))
                         .frame(width: c, height: c)
-                        .background(bg(i))
+                        .background(bg(i, cs))
+                        .overlay(Rectangle().stroke(Color.red, lineWidth: bad ? 2 : 0).padding(1.5))
                         .offset(x: CGFloat(i % 9) * c, y: CGFloat(i / 9) * c)
                         .onTapGesture { g.selected = i }
                 }
